@@ -1,0 +1,36 @@
+{
+    "AWSTemplateFormatVersion": "2010-09-09",
+    "Resources": {
+        "S3FlowLogBucket": {
+            "Type": "AWS::S3::Bucket",
+            "Description": "Bucket on which we will attach and test bucket policy"
+        },
+        "S3FlowLogBucketPolicy": {
+            "Type": "AWS::S3::BucketPolicy",
+            "Properties": {
+                "Bucket": {
+                    "Ref": "S3FlowLogBucket"
+                },
+                "PolicyDocument": {
+                    "Statement": [
+                        {
+                            "Action": [
+                                "s3:*"
+                            ],
+                            "Effect": "Allow",
+                            "Resource": [
+                                {
+                                    "Fn::Sub": "arn:aws:s3:::${S3FlowLogBucket}"
+                                },
+                                {
+                                    "Fn::Sub": "arn:aws:s3:::${S3FlowLogBucket}/*"
+                                }
+                            ],
+                            "Principal": "*"
+                        }
+                    ]
+                }
+            }
+        }
+    }
+}

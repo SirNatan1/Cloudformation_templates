@@ -1,0 +1,13 @@
+{
+    "Resources": {
+        "S3FlowLogBucket": {
+        "Type" : "AWS::S3::Bucket",
+        "Properties" : {
+            "PublicAccessBlockConfiguration" : {
+              "BlockPublicAcls" : true,
+              "BlockPublicPolicy" : true
+            }
+      }
+    }
+  }
+}
