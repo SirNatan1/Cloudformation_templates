@@ -1,0 +1,316 @@
+{
+    "AWSTemplateFormatVersion": "2010-09-09",
+    "Description": "Send logs from S3 bucket to Coralogix.",
+    "Resources": {
+        "S3FlowLogBucket": {
+            "Type": "AWS::S3::Bucket",
+            "Description": "Bucket on which we will attach and test bucket policy",
+            "Properties": {
+              "PublicAccessBlockConfiguration": {
+                "BlockPublicAcls": "True",
+                "RestrictPublicBuckets": "True"
+              },
+              "LifecycleConfiguration": {
+                "Rules": [
+                  {
+                    "Status": "Enabled",
+                    "ExpirationInDays": 31
+                  }
+                ]
+              }
+            }
+        },
+        "S3FlowLogBucketPolicy": {
+            "Type": "AWS::S3::BucketPolicy",
+            "Properties": {
+                "Bucket": {
+                    "Ref": "S3FlowLogBucket"
+                },
+                "PolicyDocument": {
+                    "Statement": [
+                        {
+                            "Action": [
+                                "s3:*"
+                            ],
+                            "Effect": "Allow",
+                            "Resource": [
+                                {
+                                    "Fn::Sub": "arn:aws:s3:::${S3FlowLogBucket}"
+                                },
+                                {
+                                    "Fn::Sub": "arn:aws:s3:::${S3FlowLogBucket}/*"
+                                }
+                            ],
+                            "Principal": "*"
+                        }
+                    ]
+                }
+            }
+        },
+        "EC2FlowLogs": {
+          "Type" : "AWS::EC2::FlowLog",
+          "Properties": {
+            "ResourceId": {"Ref": "VPC"}, #change VPC logical name 
+            "LogDestination": {"Fn::Sub": "arn:aws:s3:::${S3FlowLogBucket}"},
+            "LogDestinationType": "s3",
+            "ResourceType": "VPC",
+            "TrafficType": "ALL"
+          }
+        },
+      "LambdaFunctionInvokePermission": {
+        "Type": "AWS::Lambda::Permission",
+        "Properties": {
+          "FunctionName": {
+            "Fn::GetAtt": [
+              "LambdaFunction",
+              "Arn"
+            ]
+          },
+          "Action": "lambda:InvokeFunction",
+          "Principal": "s3.amazonaws.com",
+          "SourceAccount": {
+            "Ref": "AWS::AccountId"
+          },
+          "SourceArn": {"Fn::Sub": "arn:aws:s3:::${S3FlowLogBucket}"}
+        }
+      },
+      "LambdaTrigger": {
+        "Type": "Custom::LambdaTrigger",
+        "DependsOn": "LambdaFunctionInvokePermission",
+        "Properties": {
+          "ServiceToken": {
+            "Fn::GetAtt": [
+              "CustomResourceLambdaTriggerFunction",
+              "Arn"
+            ]
+          },
+          "LambdaArn": {
+            "Fn::GetAtt": [
+              "LambdaFunction",
+              "Arn"
+            ]
+          },
+          "Bucket": {"Ref": "S3FlowLogBucket"},
+          "Prefix": "", # add if there is a specific prefix to the files
+          "Suffix": "", # add if there is a specific suffix to the files
+        "Metadata": {
+          "SamResourceId": "LambdaTrigger"
+          }
+        }
+      },
+      "LambdaFunctionNotificationSubscription": {
+        "Type": "AWS::SNS::Subscription",
+        "Condition": "IsNotificationEnabled",
+        "Properties": {
+          "Protocol": "email",
+          "Endpoint": "", # add email address if needed
+          "TopicArn": {
+            "Ref": "LambdaFunctionEventInvokeConfigOnFailureTopic"
+          }
+        },
+        "Metadata": {
+          "SamResourceId": "LambdaFunctionNotificationSubscription"
+        }
+      },
+      "LambdaFunction": {
+        "Type": "AWS::Lambda::Function",
+        "Metadata": {
+          "SamResourceId": "LambdaFunction"
+        },
+        "Properties": {
+          "Code": {
+            "S3Bucket": "awsserverlessrepo-changesets-plntc6bfnfj",
+            "S3Key": {"Fn::Sub": "${AWS::AccountId}/arn:aws:serverlessrepo:eu-central-1:597078901540:applications-Coralogix-S3-versions-1.0.21/5dd0764e-e4c7-4d07-89a6-b5bbf65695bc"}
+          },
+          "Description": "Send logs from S3 bucket to Coralogix.",
+          "Handler": "index.handler",
+          "MemorySize": 1024,
+          "Role": {
+            "Fn::GetAtt": [
+              "LambdaFunctionRole",
+              "Arn"
+            ]
+          },
+          "Runtime": "nodejs16.x",
+          "Timeout": 300,
+          "Environment": {
+            "Variables": {
+              "CORALOGIX_URL": "https://api.eu2.coralogix.com/api/v1/logs",
+              "CORALOGIX_BUFFER_SIZE": "134217728",
+              "private_key": "<PrivateKey>", # change <PrivateKey> - coralogix private Key
+              "app_name": { "Value" : { "Ref" : "AWS::AccountId" } },
+              "sub_name": "s3FlowLogs", # replace for a different subsystemName if needed
+              "newline_pattern": "(?:\\r\\n|\\r|\\n)",
+              "blocking_pattern": "", # change for a blocking_pattern if needed
+              "sampling": "1", # change to send logs in a sample rate 
+              "debug": "false" 
+            }
+          },
+          "Architectures": ["x86_64"]
+        }
+      },
+      "LambdaFunctionEventInvokeConfigOnFailureTopic": {
+        "Type": "AWS::SNS::Topic",
+        "Properties": {}
+      },
+      "LambdaFunctionEventInvokeConfig": {
+        "Type": "AWS::Lambda::EventInvokeConfig",
+        "Metadata": {
+          "SamResourceId": "LambdaFunction"
+        },
+        "Properties": {
+          "DestinationConfig": {
+            "OnFailure": {
+              "Destination": {
+                "Ref": "LambdaFunctionEventInvokeConfigOnFailureTopic"
+              }
+            }
+          },
+          "FunctionName": {
+            "Ref": "LambdaFunction"
+          },
+          "Qualifier": "$LATEST"
+        }
+      },
+      "LambdaFunctionRole": {
+        "Type": "AWS::IAM::Role",
+        "Properties": {
+          "AssumeRolePolicyDocument": {
+            "Version": "2012-10-17",
+            "Statement": [
+              {
+                "Action": [
+                  "sts:AssumeRole"
+                ],
+                "Effect": "Allow",
+                "Principal": {
+                  "Service": [
+                    "lambda.amazonaws.com"
+                  ]
+                }
+              }
+            ]
+          },
+          "ManagedPolicyArns": [
+            "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+          ],
+          "Policies": [
+            {
+              "PolicyName": "LambdaFunctionEventInvokeConfigOnFailureSNSPolicy",
+              "PolicyDocument": {
+                "Statement": [
+                  {
+                    "Action": "sns:publish",
+                    "Effect": "Allow",
+                    "Resource": {
+                      "Ref": "LambdaFunctionEventInvokeConfigOnFailureTopic"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "PolicyName": "LambdaFunctionRolePolicy0",
+              "PolicyDocument": {
+                "Statement": [
+                  {
+                    "Effect": "Allow",
+                    "Action": [
+                      "s3:GetObject",
+                      "s3:ListBucket",
+                      "s3:GetBucketLocation",
+                      "s3:GetObjectVersion",
+                      "s3:GetLifecycleConfiguration"
+                    ],
+                    "Resource": [
+                        {
+                            "Fn::Sub": "arn:aws:s3:::${S3FlowLogBucket}"
+                        },
+                        {
+                            "Fn::Sub": "arn:aws:s3:::${S3FlowLogBucket}/*"
+                        }
+                    ]
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "CustomResourceLambdaTriggerFunction": {
+        "Type": "AWS::Lambda::Function",
+        "Metadata": {
+          "SamResourceId": "CustomResourceLambdaTriggerFunction"
+        },
+        "Properties": {
+          "Code": {
+            "S3Bucket": "awsserverlessrepo-changesets-plntc6bfnfj",
+            "S3Key": {"Fn::Sub": "${AWS::AccountId}/arn:aws:serverlessrepo:eu-central-1:597078901540:applications-Coralogix-S3-versions-1.0.21/0d74e6b8-dc3c-43b1-8dc8-123c9faff972"}
+          },
+          "Handler": "index.lambda_handler",
+          "Role": {
+            "Fn::GetAtt": [
+              "CustomResourceLambdaTriggerFunctionRole",
+              "Arn"
+            ]
+          },
+          "Runtime": "python3.9",
+          "Timeout": 50
+        }
+      },
+      "CustomResourceLambdaTriggerFunctionRole": {
+        "Type": "AWS::IAM::Role",
+        "Properties": {
+          "AssumeRolePolicyDocument": {
+            "Version": "2012-10-17",
+            "Statement": [
+              {
+                "Action": [
+                  "sts:AssumeRole"
+                ],
+                "Effect": "Allow",
+                "Principal": {
+                  "Service": [
+                    "lambda.amazonaws.com"
+                  ]
+                }
+              }
+            ]
+          },
+          "ManagedPolicyArns": [
+            "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+          ],
+          "Policies": [
+            {
+              "PolicyName": "CustomResourceLambdaTriggerFunctionRolePolicy0",
+              "PolicyDocument": {
+                "Statement": [
+                  {
+                    "Sid": "S3NotificationPolicy",
+                    "Effect": "Allow",
+                    "Action": [
+                      "s3:GetBucketNotification",
+                      "s3:PutBucketNotification"
+                    ],
+                    "Resource":  {"Fn::Sub": "arn:aws:s3:::${S3FlowLogBucket}"}
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    },
+    "Conditions": {
+      "IsNotificationEnabled": {
+        "Fn::Not": [
+          {
+            "Fn::Equals": [
+              "", # if used email above , put it also here
+              ""
+            ]
+          }
+        ]
+      }
+    }
+  }
