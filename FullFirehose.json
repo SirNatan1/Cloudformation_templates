@@ -1,0 +1,138 @@
+{
+    "Resources": {
+        "S3FireHose": {
+            "Type": "AWS::S3::Bucket",
+            "Description": "Bucket which will contain logs which will be sent to coralogix"
+        },
+        "S3BucketPolicy": {
+            "Type": "AWS::S3::BucketPolicy",
+            "Properties": {
+                "Bucket": {
+                    "Ref": "S3FireHose"
+                },
+                "PolicyDocument": {
+                    "Version": "2012-10-17",
+                    "Statement": [
+                        {
+                            "Action": [
+                                "s3:*"
+                            ],
+                            "Effect": "Allow",
+                            "Resource": [
+                                {
+                                    "Fn::Sub": "arn:aws:s3:::${S3FireHose}"
+                                },
+                                {
+                                    "Fn::Sub": "arn:aws:s3:::${S3FireHose}/*"
+                                }
+                            ],
+                            "Principal": "*"
+                        },
+                        {
+                            "Action": [
+                                "kinesis:*"
+                            ],
+                            "Effect": "Allow",
+                            "Resource": { "Fn::GetAtt": ["Firehose", "Arn"] }
+                        }
+                    ]
+                }
+            }
+        },
+        "Firehose": {
+            "Type": "AWS::KinesisFirehose::DeliveryStream",
+            "Properties": {
+                "DeliveryStreamType": "DirectPut",
+                "HttpEndpointDestinationConfiguration": {
+                    "EndpointConfiguration": {
+                        "AccessKey" : "PrivateKey", #Coralogix privatekey
+                        "Name" : "Coralogix",
+                        "Url" : "https://firehose-ingress.eu2.coralogix.com/firehose"
+                    },
+                    "RetryOptions" : {
+                        "DurationInSeconds" : 30
+                    },
+                    "RequestConfiguration": {
+                        "ContentEncoding" : "GZIP",
+                        "CommonAttributes": [
+                            { 
+                                "AttributeName" : "applicationName",
+                                "AttributeValue" : "Test"
+                            },
+                            {
+                                "AttributeName" : "subsystemName",
+                                "AttributeValue" : "Firehose"
+                            }
+                        ]
+                    },
+                    "S3BackupMode" : "FailedDataOnly",
+                    "S3Configuration" : {
+                        "BucketARN" : { "Fn::GetAtt": ["S3FireHose", "Arn"] },
+                        "RoleARN" : { "Fn::GetAtt": ["S3fullacc", "Arn"] }
+                    }
+                }
+            }
+        },
+        "CloudwatchFirehose": {
+            "Type": "AWS::IAM::Role",
+            "Properties": {
+               "AssumeRolePolicyDocument": {
+                  "Version" : "2012-10-17",
+                  "Statement": [ {
+                     "Effect": "Allow",
+                     "Principal": {
+                        "Service": [ "logs.<region_code>.amazonaws.com" ]  #AWS region
+                     },
+                     "Action": [ "sts:AssumeRole" ]
+                  } ]
+               },
+               "Path": "/"
+            }
+         },
+         "RolePolicies": {
+            "Type": "AWS::IAM::Policy",
+            "Properties": {
+               "PolicyName": "root",
+               "PolicyDocument": {
+                  "Version" : "2012-10-17",
+                  "Statement": [ {
+                     "Effect": "Allow",
+                     "Action": [
+                       "firehose:PutRecord",
+                       "firehose:PutRecordBatch"
+                     ],
+                     "Resource": [
+                         "<firehose_ARN>"
+                     ]
+                  } ]
+               },
+               "Roles": [ {
+                  "Ref": "CloudwatchFirehose"
+               } ]
+            }
+         },
+         "S3fullacc": {
+            "Type": "AWS::IAM::Role",
+            "Properties": {
+                "AssumeRolePolicyDocument": {
+                    "Version": "2012-10-17",
+                    "Statement": [
+                        {
+                            "Effect": "Allow",
+                            "Principal": {
+                                "Service": [
+                                    "cloudformation.amazonaws.com"
+                                ]
+                            },
+                            "Action": [
+                                "sts:AssumeRole"
+                            ]
+                        }
+                    ]
+                },
+                "Path": "/",
+                "ManagedPolicyArns": [ "arn:aws:iam::aws:policy/AmazonS3FullAccess" ]
+            }
+        }
+    }
+}

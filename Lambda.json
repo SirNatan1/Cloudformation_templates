@@ -2,89 +2,6 @@
     "AWSTemplateFormatVersion": "2010-09-09",
     "Description": "Send logs from S3 bucket to Coralogix.",
     "Resources": {
-        "S3KMSkey": {
-          "Type": "AWS::KMS::Key",
-          "Properties": {
-            "KeyPolicy": {
-              "Version": "2012-10-17",
-                "Id": "key-default-1",
-                "Statement": [
-                  {
-                    "Effect": "Allow",
-                    "Principal": "*",
-                    "Action": "kms:*",
-                    "Resource": "*"
-                  }
-                ]
-            }
-          }
-        },
-        "S3FlowLogBucket": {
-            "Type": "AWS::S3::Bucket",
-            "Description": "Bucket on which we will attach and test bucket policy",
-            "Properties": {
-              "BucketEncryption": {
-                "ServerSideEncryptionConfiguration": [
-                  {
-                    "ServerSideEncryptionByDefault": {
-                      "SSEAlgorithm": "aws:kms",
-                      "KMSMasterKeyID": {"Ref": "S3KMSkey"}
-                    },
-                    "BucketKeyEnabled": true
-                  }
-                ]
-              },
-              "PublicAccessBlockConfiguration": {
-                "BlockPublicAcls": "True",
-                "RestrictPublicBuckets": "True"
-              },
-              "LifecycleConfiguration": {
-                "Rules": [
-                  {
-                    "Status": "Enabled",
-                    "ExpirationInDays": 31
-                  }
-                ]
-              }
-            }
-        },
-        "S3FlowLogBucketPolicy": {
-            "Type": "AWS::S3::BucketPolicy",
-            "Properties": {
-                "Bucket": {
-                    "Ref": "S3FlowLogBucket"
-                },
-                "PolicyDocument": {
-                    "Statement": [
-                        {
-                            "Action": [
-                                "s3:*"
-                            ],
-                            "Effect": "Allow",
-                            "Resource": [
-                                {
-                                    "Fn::Sub": "arn:aws:s3:::${S3FlowLogBucket}"
-                                },
-                                {
-                                    "Fn::Sub": "arn:aws:s3:::${S3FlowLogBucket}/*"
-                                }
-                            ],
-                            "Principal": "*"
-                        }
-                    ]
-                }
-            }
-        },
-        "EC2FlowLogs": {
-          "Type" : "AWS::EC2::FlowLog",
-          "Properties": {
-            "ResourceId": {"Ref": "VPC"}, #change VPC logical name 
-            "LogDestination": {"Fn::Sub": "arn:aws:s3:::${S3FlowLogBucket}"},
-            "LogDestinationType": "s3",
-            "ResourceType": "VPC",
-            "TrafficType": "ALL"
-          }
-        },
       "LambdaFunctionInvokePermission": {
         "Type": "AWS::Lambda::Permission",
         "Properties": {
@@ -99,7 +16,7 @@
           "SourceAccount": {
             "Ref": "AWS::AccountId"
           },
-          "SourceArn": {"Fn::Sub": "arn:aws:s3:::${S3FlowLogBucket}"}
+          "SourceArn": "arn:aws:s3:::<BucketName>" # change <BucketName>
         }
       },
       "LambdaTrigger": {
@@ -118,7 +35,7 @@
               "Arn"
             ]
           },
-          "Bucket": {"Ref": "S3FlowLogBucket"},
+          "Bucket": "<BucketName>", # change <BucketName>
           "Prefix": "", # add if there is a specific prefix to the files
           "Suffix": "", # add if there is a specific suffix to the files
         "Metadata": {
@@ -148,7 +65,7 @@
         "Properties": {
           "Code": {
             "S3Bucket": "awsserverlessrepo-changesets-plntc6bfnfj",
-            "S3Key": {"Fn::Sub": "${AWS::AccountId}/arn:aws:serverlessrepo:eu-central-1:597078901540:applications-Coralogix-S3-versions-1.0.21/5dd0764e-e4c7-4d07-89a6-b5bbf65695bc"}
+            "S3Key": "952529043200/arn:aws:serverlessrepo:eu-central-1:597078901540:applications-Coralogix-S3-versions-1.0.21/5dd0764e-e4c7-4d07-89a6-b5bbf65695bc"
           },
           "Description": "Send logs from S3 bucket to Coralogix.",
           "Handler": "index.handler",
@@ -163,14 +80,14 @@
           "Timeout": 300,
           "Environment": {
             "Variables": {
-              "CORALOGIX_URL": "https://api.eu2.coralogix.com/api/v1/logs",
+              "CORALOGIX_URL": "https://api.eu2.coralogix.com/api/v1/logs", # change to correct cluster if needed
               "CORALOGIX_BUFFER_SIZE": "134217728",
               "private_key": "<PrivateKey>", # change <PrivateKey> - coralogix private Key
-              "app_name": { "Value" : { "Ref" : "AWS::AccountId" } },
-              "sub_name": "s3FlowLogs", # replace for a different subsystemName if needed
-              "newline_pattern": "(?:\\r\\n|\\r|\\n)",
-              "blocking_pattern": "", # change for a blocking_pattern if needed
-              "sampling": "1", # change to send logs in a sample rate 
+              "app_name": "s3", # replace for a different applicationName
+              "sub_name": "s3-premade", # replace for a different subsystemName
+              "newline_pattern": "(?:\\r\\n|\\r|\\n)", # replace for a different newline_pattern
+              "blocking_pattern": "", # change for a blocking_pattern
+              "sampling": "1", # change to send logs in a sample rate
               "debug": "false" 
             }
           },
@@ -251,12 +168,8 @@
                       "s3:GetLifecycleConfiguration"
                     ],
                     "Resource": [
-                        {
-                            "Fn::Sub": "arn:aws:s3:::${S3FlowLogBucket}"
-                        },
-                        {
-                            "Fn::Sub": "arn:aws:s3:::${S3FlowLogBucket}/*"
-                        }
+                          "arn:aws:s3:::<BucketName>", # change <BucketName>
+                          "arn:aws:s3:::<BucketName>/*" # change <BucketName>
                     ]
                   }
                 ]
@@ -273,7 +186,7 @@
         "Properties": {
           "Code": {
             "S3Bucket": "awsserverlessrepo-changesets-plntc6bfnfj",
-            "S3Key": {"Fn::Sub": "${AWS::AccountId}/arn:aws:serverlessrepo:eu-central-1:597078901540:applications-Coralogix-S3-versions-1.0.21/0d74e6b8-dc3c-43b1-8dc8-123c9faff972"}
+            "S3Key": "952529043200/arn:aws:serverlessrepo:eu-central-1:597078901540:applications-Coralogix-S3-versions-1.0.21/0d74e6b8-dc3c-43b1-8dc8-123c9faff972"
           },
           "Handler": "index.lambda_handler",
           "Role": {
@@ -320,7 +233,7 @@
                       "s3:GetBucketNotification",
                       "s3:PutBucketNotification"
                     ],
-                    "Resource":  {"Fn::Sub": "arn:aws:s3:::${S3FlowLogBucket}"}
+                    "Resource": "arn:aws:s3:::<BucketName>" # change <BucketName>
                   }
                 ]
               }
